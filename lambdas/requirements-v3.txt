@@ -1,0 +1,3 @@
+# Python 3.12 x86_64 Lambda imaging layer
+pillow==13.0.0
+pypdfium2==5.14.0

@@ -1,0 +1,41 @@
+# Terraform
+terraform-v3/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+*.plan
+*.log
+
+# macOS
+.DS_Store
+._*
+
+# Local command and security-scan output
+result.json
+.ash/
+
+# Customer-provided test documents stay local and out of shared source
+data/private/
+
+# Lambda build artifacts
+lambdas/build*/
+lambdas/**/package/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# AWS
+global-bundle.pem
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/.env.production
+*.tsbuildinfo
+

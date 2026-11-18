@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars, then replace the customer settings.
+region           = "CHANGE_ME"
+project_name     = "vectorless-v3"
+admin_user_email = "CHANGE_ME"
+
+# These defaults must be available through Amazon Bedrock in the selected Region.
+router_model_id = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+answer_model_id = "global.anthropic.claude-sonnet-4-6"
+
+# Optional custom domain. The ACM certificate must be in us-east-1.
+# cloudfront_aliases       = ["rag.example.com"]
+# cloudfront_certificate_arn = "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/CERTIFICATE_ID"
