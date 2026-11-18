@@ -46,6 +46,8 @@ Install:
 - Python 3.11 or later, or `uv`
 - Git
 
+The guided script checks every required command and version before making AWS calls. It does not install, replace, or reconfigure system tools. If a prerequisite is missing or outdated, it lists only the affected installation links and prints the command to rerun after correction.
+
 The selected account must have access to the configured [Amazon Bedrock models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
 
 ## Quick start
@@ -96,6 +98,23 @@ The guided script:
 - prints the final application URL
 
 The administrator email receives the temporary password for first sign-in. Deployment-specific values are written to the Git-ignored `terraform-v3/terraform.tfvars` file. Credentials are never written to the repository or Terraform configuration.
+
+### Resume an interrupted deployment
+
+Once Terraform has created resources, do not rerun the fresh-stack deployment command. Resume only the unfinished step from the same clone and Terraform state:
+
+```bash
+# Resume frontend publication after infrastructure and the HTTP 401 gate are ready.
+./scripts/deploy_v3_frontend.sh
+
+# Resume the Danfoss download, verification, upload, and ingestion step.
+./scripts/fetch_and_upload_danfoss.sh
+
+# Remove the stack when teardown is approved.
+./scripts/teardown_v3.sh
+```
+
+When using a named profile, set `AWS_PROFILE` for the frontend command or pass `--profile PROFILE` to the Danfoss and teardown commands. Each script checks its own prerequisites and prints a safe rerun command when a requirement fails.
 
 The Region menu includes:
 

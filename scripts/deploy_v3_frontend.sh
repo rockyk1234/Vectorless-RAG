@@ -6,12 +6,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 TF="$ROOT/terraform-v3"
 
-for tool in aws terraform npm; do
-  command -v "$tool" >/dev/null 2>&1 || {
-    printf 'Missing required tool: %s\n' "$tool" >&2
-    exit 1
-  }
-done
+[ -x "$HERE/check_prerequisites.sh" ] || {
+  printf 'Missing executable scripts/check_prerequisites.sh\n' >&2
+  exit 1
+}
+"$HERE/check_prerequisites.sh" frontend || {
+  printf 'Resume after installing the listed prerequisites by rerunning scripts/deploy_v3_frontend.sh.\n' >&2
+  exit 1
+}
 
 REGION="$(terraform -chdir="$TF" output -raw region)"
 ACCOUNT="$(terraform -chdir="$TF" output -raw aws_account_id)"

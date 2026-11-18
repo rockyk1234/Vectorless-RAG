@@ -53,6 +53,14 @@ fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 TF="$ROOT/terraform-v3"
+[ -x "$HERE/check_prerequisites.sh" ] || {
+  printf 'Missing executable scripts/check_prerequisites.sh\n' >&2
+  exit 1
+}
+"$HERE/check_prerequisites.sh" upload || {
+  printf 'Resume after installing the listed prerequisites by rerunning the same upload command.\n' >&2
+  exit 1
+}
 REGION="$(terraform -chdir="$TF" output -raw region)"
 ACCOUNT="$(terraform -chdir="$TF" output -raw aws_account_id)"
 BUCKET="$(terraform -chdir="$TF" output -raw document_bucket)"

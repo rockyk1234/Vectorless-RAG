@@ -45,8 +45,18 @@ die() {
   exit 1
 }
 
-require_tool() {
-  command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"
+print_resume_help() {
+  printf '\nThis stack already has Terraform state. Do not rerun infrastructure creation.\n' >&2
+  printf 'Resume only the unfinished step:\n' >&2
+  if [ -n "$PROFILE_OVERRIDE" ]; then
+    printf '  Frontend: AWS_PROFILE=%q ./scripts/deploy_v3_frontend.sh\n' "$PROFILE_OVERRIDE" >&2
+    printf '  Manual:   ./scripts/fetch_and_upload_danfoss.sh --profile %q\n' "$PROFILE_OVERRIDE" >&2
+    printf '  Teardown: ./scripts/teardown_v3.sh --profile %q\n' "$PROFILE_OVERRIDE" >&2
+  else
+    printf '  Frontend: ./scripts/deploy_v3_frontend.sh\n' >&2
+    printf '  Manual:   ./scripts/fetch_and_upload_danfoss.sh\n' >&2
+    printf '  Teardown: ./scripts/teardown_v3.sh\n' >&2
+  fi
 }
 
 while [ "$#" -gt 0 ]; do
@@ -77,9 +87,18 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -t 0 ] || die "Run this interactive script from a terminal"
-for tool in aws terraform python3 node npm curl; do
-  require_tool "$tool"
-done
+[ -x "$HERE/check_prerequisites.sh" ] || die "Missing executable scripts/check_prerequisites.sh"
+"$HERE/check_prerequisites.sh" full || {
+  printf 'Resume after installing the listed prerequisites by rerunning:\n  %s' "$0" >&2
+  if [ "$MODE" = "plan-only" ]; then
+    printf ' --plan-only' >&2
+  fi
+  if [ -n "$PROFILE_OVERRIDE" ]; then
+    printf ' --profile %q' "$PROFILE_OVERRIDE" >&2
+  fi
+  printf '\n' >&2
+  exit 1
+}
 [ -f "$TF/terraform.tfvars.example" ] || die "Missing terraform-v3/terraform.tfvars.example"
 
 if [ -s "$TF/terraform.tfstate" ]; then
@@ -87,11 +106,14 @@ if [ -s "$TF/terraform.tfstate" ]; then
 import json
 import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
-    print(len(json.load(handle).get("resources", [])))
+    state = json.load(handle)
+print(sum(1 for resource in state.get("resources", []) if resource.get("mode") == "managed"))
 PY
 )"
-  [ "$STATE_RESOURCES" = "0" ] || die \
-    "Existing Terraform state manages $STATE_RESOURCES resources. Use the manual workflow for an existing stack."
+  if [ "$STATE_RESOURCES" -gt 0 ]; then
+    print_resume_help
+    die "Existing Terraform state manages $STATE_RESOURCES resources"
+  fi
 fi
 
 printf '\nSelect the regional location for data, compute, Cognito, Textract, and Bedrock calls.\n'
@@ -211,6 +233,7 @@ python3 -m unittest discover -s lambdas/tests -v
   npm run build
   npm audit --omit=dev
 )
+bash -n scripts/check_prerequisites.sh
 bash -n scripts/preflight_v3.sh
 bash -n scripts/fetch_and_upload_danfoss.sh
 bash -n scripts/upload_v3_manual.sh
@@ -272,17 +295,26 @@ for ((attempt = 1; attempt <= AUTH_GATE_MAX_ATTEMPTS; attempt++)); do
   printf '  Attempt %d: HTTP %s\n' "$attempt" "${HTTP_STATUS:-unavailable}"
   sleep "$POLL_INTERVAL_SECONDS"
 done
-[ "$AUTH_VERIFIED" = "true" ] || die \
-  "Anonymous access was not denied with the expected 401 response. Frontend publication is blocked."
+if [ "$AUTH_VERIFIED" != "true" ]; then
+  printf 'Terraform state was preserved at %s/terraform.tfstate.\n' "$TF" >&2
+  printf 'Correct the authentication gate, verify HTTP 401 manually, then resume with scripts/deploy_v3_frontend.sh.\n' >&2
+  die "Anonymous access was not denied with the expected 401 response. Frontend publication is blocked."
+fi
 printf 'Anonymous authentication gate verified: HTTP 401.\n'
 
 printf '\nThe frontend script will display the exact target and require y/N confirmation.\n'
-./scripts/deploy_v3_frontend.sh
+if ! ./scripts/deploy_v3_frontend.sh; then
+  print_resume_help
+  die "Frontend deployment did not complete; infrastructure state was preserved"
+fi
 
 read -r -p "Fetch the tested Danfoss manual from its official source and upload it now? [y/N]: " UPLOAD_SAMPLE
 case "$UPLOAD_SAMPLE" in
   y|Y|yes|YES)
-    ./scripts/fetch_and_upload_danfoss.sh
+    if ! ./scripts/fetch_and_upload_danfoss.sh; then
+      print_resume_help
+      die "Manual download or upload did not complete; infrastructure and frontend remain deployed"
+    fi
 
     TABLE="$(terraform -chdir="$TF" output -raw metadata_table)"
     printf 'Waiting for the manual CURRENT pointer...\n'
@@ -299,7 +331,8 @@ case "$UPLOAD_SAMPLE" in
         break
       fi
       if [ "$attempt" -eq "$MANUAL_INGEST_MAX_ATTEMPTS" ]; then
-        die "Manual ingestion did not finish within $MANUAL_INGEST_TIMEOUT_MINUTES minutes. Inspect the ingest logs and DLQ."
+        print_resume_help
+        die "Manual ingestion did not finish within $MANUAL_INGEST_TIMEOUT_MINUTES minutes. Inspect the ingest logs and DLQ, then rerun only the manual command if needed."
       fi
       sleep "$POLL_INTERVAL_SECONDS"
     done

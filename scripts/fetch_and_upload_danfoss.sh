@@ -45,9 +45,15 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-for tool in curl python3; do
-  command -v "$tool" >/dev/null 2>&1 || die "Missing required tool: $tool"
-done
+[ -x "$HERE/check_prerequisites.sh" ] || die "Missing executable scripts/check_prerequisites.sh"
+"$HERE/check_prerequisites.sh" fetch || {
+  printf 'Resume after installing the listed prerequisites by rerunning:\n  %s' "$0" >&2
+  if [ -n "$PROFILE_OVERRIDE" ]; then
+    printf ' --profile %q' "$PROFILE_OVERRIDE" >&2
+  fi
+  printf '\n' >&2
+  exit 1
+}
 [ -x "$HERE/upload_v3_manual.sh" ] || die "Missing executable scripts/upload_v3_manual.sh"
 
 if [ -n "$PROFILE_OVERRIDE" ]; then

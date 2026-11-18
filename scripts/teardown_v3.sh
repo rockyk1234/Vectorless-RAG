@@ -31,10 +31,6 @@ confirm() {
   esac
 }
 
-require_tool() {
-  command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"
-}
-
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --profile)
@@ -59,9 +55,15 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -t 0 ] || die "Run this interactive script from a terminal"
-for tool in aws terraform python3; do
-  require_tool "$tool"
-done
+[ -x "$HERE/check_prerequisites.sh" ] || die "Missing executable scripts/check_prerequisites.sh"
+"$HERE/check_prerequisites.sh" teardown || {
+  printf 'Resume after installing the listed prerequisites by rerunning:\n  %s' "$0" >&2
+  if [ -n "$PROFILE_OVERRIDE" ]; then
+    printf ' --profile %q' "$PROFILE_OVERRIDE" >&2
+  fi
+  printf '\n' >&2
+  exit 1
+}
 
 if [ -n "$PROFILE_OVERRIDE" ]; then
   export AWS_PROFILE="$PROFILE_OVERRIDE"
@@ -70,6 +72,7 @@ fi
 [ -s "$TF/terraform.tfstate" ] || die \
   "No local terraform-v3/terraform.tfstate was found. Run teardown from the directory that deployed the stack."
 
+terraform -chdir="$TF" init -input=false
 STATE_JSON="$(terraform -chdir="$TF" show -json)" || die "Unable to read Terraform state"
 
 state_value() {
