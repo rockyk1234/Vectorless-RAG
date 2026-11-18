@@ -3,7 +3,7 @@
 resource "aws_cloudfront_distribution" "web" {
   # checkov:skip=CKV_AWS_310:The proof of concept has one private UI origin and one API route, with no equivalent failover origins.
   # checkov:skip=CKV_AWS_374:Geographic restrictions are customer policy choices and are not a substitute for Cognito authentication.
-  # checkov:skip=CKV2_AWS_47:The attached WAF includes AWSManagedRulesKnownBadInputsRuleSet, which contains Log4j request protection.
+  # checkov:skip=CKV2_AWS_47:WAF is enabled by default and includes AWSManagedRulesKnownBadInputsRuleSet, which contains Log4j request protection.
   depends_on = [aws_s3_bucket_acl.access_logs]
 
   enabled             = true
@@ -12,7 +12,7 @@ resource "aws_cloudfront_distribution" "web" {
   price_class         = "PriceClass_100"
   http_version        = "http2and3"
   aliases             = var.cloudfront_aliases
-  web_acl_id          = aws_wafv2_web_acl.web.arn
+  web_acl_id          = var.enable_waf ? aws_wafv2_web_acl.web[0].arn : null
 
   logging_config {
     bucket          = aws_s3_bucket.access_logs.bucket_domain_name

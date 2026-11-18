@@ -17,7 +17,7 @@ Responses include the manual revision, source pages, verified quotes, and short-
 ## Architecture
 
 ```text
-Browser -> Amazon Cognito -> AWS WAF -> Amazon CloudFront
+Browser -> Amazon Cognito -> optional AWS WAF -> Amazon CloudFront
 
 CloudFront -> private Amazon S3 web bucket
 CloudFront -> IAM-protected Lambda Function URL
@@ -86,7 +86,7 @@ If you use a named AWS CLI profile:
 
 The guided script:
 
-- asks for the AWS Region, administrator email, and project name
+- asks for the AWS Region, administrator email, project name, and whether to deploy AWS WAF
 - verifies the exact AWS account and role
 - uses Claude Haiku 4.5 for routing and Claude Sonnet 4.6 for answers
 - runs tests, builds, dependency checks, and regional model preflight
@@ -153,7 +153,7 @@ Do not commit customer documents. Store local private test files under `data/pri
 
 - Amazon Cognito Managed Login uses authorization code flow with PKCE.
 - CloudFront privately accesses the S3 origin and IAM-protected Lambda Function URL.
-- AWS WAF applies managed common and known-bad-input protections.
+- When selected, AWS WAF applies managed common and known-bad-input protections.
 - S3 public access blocks remain enabled.
 - Documents and application logs use customer managed AWS KMS keys.
 - Questions use POST bodies and are not written to CloudFront URL logs.
@@ -172,7 +172,7 @@ The pilot estimate assumes:
 - 2 GB of stored data
 - 0.1 GB of CloudFront data transfer
 
-Estimated monthly cost: **$26**.
+Estimated monthly cost with AWS WAF enabled: **$26**.
 
 The estimate includes Amazon Bedrock, Amazon Textract, Lambda, AWS WAF, AWS KMS, S3, DynamoDB, CloudFront, Cognito, CloudWatch, AWS X-Ray, and Amazon SQS. Bedrock and Textract usage varies with document structure, token volume, query depth, and reprocessing frequency.
 
@@ -193,7 +193,7 @@ Run teardown from the same directory and Terraform state used for deployment:
 ./scripts/teardown_v3.sh
 ```
 
-Use `--profile PROFILE` when the deployment used a named AWS CLI profile. The script inventories and backs up the state, requires confirmation before permanent data deletion, removes the Terraform-managed stack, and verifies every service afterward. AWS KMS keys enter a 30-day pending-deletion period.
+Use `--profile PROFILE` when the deployment used a named AWS CLI profile. The script inventories and backs up the state, requires confirmation before permanent data deletion, removes the Terraform-managed stack, retries delayed S3 access-log delivery with fresh destroy plans, and verifies every service afterward. Deployed AWS KMS keys enter a 30-day pending-deletion period.
 
 Teardown permanently removes documents, processed sections, logs, and user access. Preserve required data and obtain approval first. See [docs/HANDOVER.md](docs/HANDOVER.md) for the manual procedure.
 

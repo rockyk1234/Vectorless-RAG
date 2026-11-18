@@ -9,6 +9,7 @@ Before deployment, the customer chooses and records:
 - administrator email
 - router and answer model IDs
 - whether inference may use a geographic or global profile
+- whether to deploy AWS WAF managed protections and encrypted WAF logs
 - optional DNS alias and matching ACM certificate
 - document classifications and retention requirements
 
@@ -20,6 +21,7 @@ project_name     = "<lowercase-resource-prefix>"
 admin_user_email = "<customer-admin-email>"
 router_model_id  = "<router-model-or-inference-profile-id>"
 answer_model_id  = "<answer-model-or-inference-profile-id>"
+enable_waf       = true
 
 # Optional custom CloudFront name. Supply both values or neither.
 cloudfront_aliases         = ["<application.example.com>"]
@@ -78,7 +80,7 @@ Before publishing the frontend, request the Terraform `web_url` output at `/api/
 - Source PDFs, extracted text, trees, figures, and metadata are stored in customer-owned AWS resources.
 - CloudWatch audit records contain hashes and routing metadata, not question or quote text.
 - Questions use JSON POST bodies so CloudFront access logs do not capture question text in URL query fields.
-- CloudFront and S3 access logs contain requester metadata, source IP addresses, user agents, and object paths. WAF logs redact `x-id-token`. Classify, retain, and restrict all access logs under the customer's logging policy.
+- CloudFront and S3 access logs contain requester metadata, source IP addresses, user agents, and object paths. When WAF is enabled, WAF logs redact `x-id-token`. Classify, retain, and restrict all access logs under the customer's logging policy.
 - Presigned PDF and figure links expire after 15 minutes.
 
 ## Operational checks
@@ -104,7 +106,7 @@ Before publishing the frontend, request the Terraform `web_url` output at `/api/
 
 ## Cleanup and troubleshooting
 
-For guided teardown, run `scripts/teardown_v3.sh` from the same working directory and Terraform state used for deployment. Add `--profile PROFILE` when using a named AWS CLI profile. The script inventories the exact account, Region, resources, object versions, and multipart uploads; backs up local state; obtains separate confirmations for data deletion and Terraform destroy; and verifies each service after completion.
+For guided teardown, run `scripts/teardown_v3.sh` from the same working directory and Terraform state used for deployment. Add `--profile PROFILE` when using a named AWS CLI profile. The script inventories the exact account, Region, resources, object versions, and multipart uploads; backs up local state; obtains separate confirmations for data deletion and Terraform destroy; retries delayed S3 access-log delivery with a bounded sequence of fresh destroy plans; and verifies each service after completion.
 
 Teardown is destructive. Obtain customer approval, preserve required evidence, disable Cognito deletion protection in an approved plan, empty all versions from the three S3 buckets under the customer's deletion process, and review a dedicated Terraform destroy plan before applying it.
 
@@ -120,7 +122,7 @@ For failures, use the following order:
 
 - Order and compatibility files are demonstration fixtures.
 - Figure content is not interpreted by the answer model.
-- AWS WAF applies the common and known-bad-input managed rule groups. Per-user rate limiting, enterprise federation, alarms, dashboards, automated restore tests, and a production support model remain customer production-hardening work.
+- When enabled, AWS WAF applies the common and known-bad-input managed rule groups. Per-user rate limiting, enterprise federation, alarms, dashboards, automated restore tests, and a production support model remain customer production-hardening work.
 - Lambda code signing is not enabled because this repository builds unsigned local ZIP files. A production release process must sign the function and layer artifacts and attach an enforcing code-signing configuration.
 - Cross-Region S3 replication and CloudFront origin failover are intentionally absent. Customers must select recovery controls that match data residency, recovery point, recovery time, and cost requirements.
 - The standard CloudFront domain prioritizes portable deployment. Customers requiring a TLS 1.2 minimum viewer policy should provide a custom domain and an ACM certificate in `us-east-1`.

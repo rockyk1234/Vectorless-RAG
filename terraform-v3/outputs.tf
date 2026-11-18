@@ -57,3 +57,7 @@ output "router_model_id" {
 output "answer_model_id" {
   value = var.answer_model_id
 }
+
+output "waf_enabled" {
+  value = var.enable_waf
+}

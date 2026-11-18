@@ -87,7 +87,8 @@ modules = [data.get("values", {}).get("root_module", {})]
 while modules:
     module = modules.pop()
     for resource in module.get("resources", []):
-        if resource.get("address") == address:
+        resource_address = resource.get("address", "")
+        if resource_address == address or resource_address.startswith(address + "["):
             value = resource.get("values", {}).get(attribute)
             if value is None:
                 raise SystemExit(2)
@@ -96,6 +97,10 @@ while modules:
     modules.extend(module.get("child_modules", []))
 raise SystemExit(1)
 ' "$1" "$2" <<< "$STATE_JSON"
+}
+
+optional_state_value() {
+  state_value "$1" "$2" 2>/dev/null || true
 }
 
 MANAGED_RESOURCE_COUNT="$(python3 -c '
@@ -129,9 +134,9 @@ DLQ_URL="$(state_value aws_sqs_queue.ingest_dlq id)"
 QUERY_ROLE="$(state_value aws_iam_role.query name)"
 INGEST_ROLE="$(state_value aws_iam_role.ingest name)"
 DATA_KEY_ID="$(state_value aws_kms_key.data key_id)"
-WAF_KEY_ID="$(state_value aws_kms_key.waf_logs key_id)"
-WAF_ID="$(state_value aws_wafv2_web_acl.web id)"
-WAF_NAME="$(state_value aws_wafv2_web_acl.web name)"
+WAF_KEY_ID="$(optional_state_value aws_kms_key.waf_logs key_id)"
+WAF_ID="$(optional_state_value aws_wafv2_web_acl.web id)"
+WAF_NAME="$(optional_state_value aws_wafv2_web_acl.web name)"
 WEB_OAC_ID="$(state_value aws_cloudfront_origin_access_control.web id)"
 QUERY_OAC_ID="$(state_value aws_cloudfront_origin_access_control.query id)"
 CACHE_POLICY_ID="$(state_value aws_cloudfront_cache_policy.api id)"
@@ -141,7 +146,11 @@ LAYER_NAME="$(state_value aws_lambda_layer_version.imaging layer_name)"
 LAYER_VERSION="$(state_value aws_lambda_layer_version.imaging version)"
 INGEST_LOG_GROUP="$(state_value aws_cloudwatch_log_group.ingest name)"
 QUERY_LOG_GROUP="$(state_value aws_cloudwatch_log_group.query name)"
-WAF_LOG_GROUP="$(state_value aws_cloudwatch_log_group.waf name)"
+WAF_LOG_GROUP="$(optional_state_value aws_cloudwatch_log_group.waf name)"
+WAF_ENABLED="false"
+if [ -n "$WAF_ID" ]; then
+  WAF_ENABLED="true"
+fi
 
 if ! CALLER_JSON="$(aws sts get-caller-identity --region "$REGION" --output json 2>/dev/null)"; then
   die "AWS authentication failed. Rerun with active credentials or --profile PROFILE."
@@ -192,7 +201,9 @@ printf '  S3 object versions:  %s\n' "$TOTAL_VERSIONS"
 printf '  Multipart uploads:   %s\n' "$TOTAL_UPLOADS"
 printf '\nServices scheduled for removal:\n'
 printf '  Amazon CloudFront distribution, policies, and origin access controls\n'
-printf '  AWS WAF web ACL, logging configuration, and log group\n'
+if [ "$WAF_ENABLED" = "true" ]; then
+  printf '  AWS WAF web ACL, logging configuration, log group, and KMS key\n'
+fi
 printf '  Amazon Cognito user pool, client, domain, branding, and users\n'
 printf '  AWS Lambda query and ingest functions, Function URL, layer, and permissions\n'
 printf '  AWS IAM query and ingest roles and inline policies\n'
@@ -200,7 +211,11 @@ printf '  Amazon DynamoDB metadata table and records\n'
 printf '  Amazon SQS ingest dead-letter queue\n'
 printf '  Three Amazon S3 buckets, every object version, and multipart upload\n'
 printf '  CloudWatch Lambda log groups\n'
-printf '  Two AWS KMS keys, which enter a 30-day pending-deletion period\n'
+if [ "$WAF_ENABLED" = "true" ]; then
+  printf '  Two AWS KMS keys, which enter a 30-day pending-deletion period\n'
+else
+  printf '  One AWS KMS key, which enters a 30-day pending-deletion period\n'
+fi
 
 confirm "Continue with this exact account, Region, and project?" || die "Teardown cancelled"
 printf '\nThis permanently deletes every object version in the three listed Terraform-owned buckets.\n'
@@ -240,7 +255,8 @@ if len(changes) != 1 or changes[0].get("address") != "aws_cognito_user_pool.main
   terraform -chdir="$TF" apply -input=false "$PROTECTION_PLAN"
 fi
 
-python3 - "$REGION" "$ACCOUNT" "$DOCUMENT_BUCKET" "$WEB_BUCKET" "$ACCESS_LOG_BUCKET" <<'PY'
+empty_owned_buckets() {
+  python3 - "$REGION" "$ACCOUNT" "$DOCUMENT_BUCKET" "$WEB_BUCKET" "$ACCESS_LOG_BUCKET" <<'PY'
 import json
 import os
 import subprocess
@@ -253,17 +269,25 @@ def aws(*args):
     command = ["aws", *args, "--region", region]
     if profile:
         command.extend(["--profile", profile])
-    return subprocess.check_output(command, text=True)
+    return subprocess.check_output(command, text=True, stderr=subprocess.STDOUT)
 
 for bucket in buckets:
     deleted = 0
+    bucket_exists = True
     while True:
-        raw = aws(
-            "s3api", "list-object-versions",
-            "--bucket", bucket,
-            "--expected-bucket-owner", owner,
-            "--output", "json",
-        ).strip()
+        try:
+            raw = aws(
+                "s3api", "list-object-versions",
+                "--bucket", bucket,
+                "--expected-bucket-owner", owner,
+                "--output", "json",
+            ).strip()
+        except subprocess.CalledProcessError as error:
+            if "NoSuchBucket" in error.output or "Not Found" in error.output:
+                print(f"Already removed {bucket}")
+                bucket_exists = False
+                break
+            raise
         data = json.loads(raw) if raw else {}
         objects = [
             {"Key": item["Key"], "VersionId": item["VersionId"]}
@@ -281,6 +305,9 @@ for bucket in buckets:
         if result.get("Errors"):
             raise SystemExit(f"Failed to delete one or more versions from {bucket}")
         deleted += len(objects)
+
+    if not bucket_exists:
+        continue
 
     aborted = 0
     while True:
@@ -304,14 +331,21 @@ for bucket in buckets:
             aborted += 1
     print(f"Emptied {bucket}: deleted_versions={deleted}, aborted_uploads={aborted}")
 PY
+}
 
-DESTROY_PLAN="$TF/destroy-$TIMESTAMP.plan"
-terraform -chdir="$TF" plan \
-  -destroy \
-  -input=false \
-  -var='cognito_deletion_protection=INACTIVE' \
-  -out="$DESTROY_PLAN"
-DESTROY_COUNT="$(terraform -chdir="$TF" show -json "$DESTROY_PLAN" | python3 -c '
+empty_owned_buckets
+
+MAX_DESTROY_ATTEMPTS=3
+DESTROY_SUCCEEDED="false"
+for ((destroy_attempt = 1; destroy_attempt <= MAX_DESTROY_ATTEMPTS; destroy_attempt++)); do
+  ATTEMPT_TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)-$destroy_attempt"
+  DESTROY_PLAN="$TF/destroy-$ATTEMPT_TIMESTAMP.plan"
+  terraform -chdir="$TF" plan \
+    -destroy \
+    -input=false \
+    -var='cognito_deletion_protection=INACTIVE' \
+    -out="$DESTROY_PLAN"
+  DESTROY_COUNT="$(terraform -chdir="$TF" show -json "$DESTROY_PLAN" | python3 -c '
 import json
 import sys
 
@@ -326,10 +360,30 @@ if not deletes or unexpected:
     raise SystemExit("Destroy plan contains unexpected actions")
 print(len(deletes))
 ')"
-printf '\nValidated destroy plan: %s resources will be removed, with no creates or updates.\n' "$DESTROY_COUNT"
-printf 'Saved destroy plan: %s\n' "$DESTROY_PLAN"
-confirm "Apply this exact destroy plan?" || die "Destroy plan preserved but not applied"
-terraform -chdir="$TF" apply -input=false "$DESTROY_PLAN"
+  printf '\nValidated destroy plan attempt %s: %s resources will be removed, with no creates or updates.\n' \
+    "$destroy_attempt" "$DESTROY_COUNT"
+  printf 'Saved destroy plan: %s\n' "$DESTROY_PLAN"
+  if [ "$destroy_attempt" -eq 1 ]; then
+    confirm "Apply this exact destroy plan?" || die "Destroy plan preserved but not applied"
+  else
+    printf 'Retrying the confirmed teardown with a fresh plan after delayed AWS activity.\n'
+  fi
+
+  if terraform -chdir="$TF" apply -input=false "$DESTROY_PLAN"; then
+    DESTROY_SUCCEEDED="true"
+    break
+  fi
+
+  if [ "$destroy_attempt" -lt "$MAX_DESTROY_ATTEMPTS" ]; then
+    printf 'Destroy attempt %s was partial. Terraform preserved the remaining state.\n' "$destroy_attempt" >&2
+    printf 'Waiting 30 seconds for asynchronous log delivery before cleanup and replanning...\n' >&2
+    sleep 30
+    empty_owned_buckets
+  fi
+done
+
+[ "$DESTROY_SUCCEEDED" = "true" ] || die \
+  "Teardown remained incomplete after $MAX_DESTROY_ATTEMPTS fresh plans. State backup: $STATE_BACKUP"
 
 VERIFICATION_FAILURES=0
 verify_absent() {
@@ -368,7 +422,9 @@ verify_absent "CloudFront query origin access control" aws cloudfront get-origin
 verify_absent "CloudFront API cache policy" aws cloudfront get-cache-policy --id "$CACHE_POLICY_ID"
 verify_absent "CloudFront API origin request policy" aws cloudfront get-origin-request-policy --id "$ORIGIN_POLICY_ID"
 verify_absent "CloudFront security headers policy" aws cloudfront get-response-headers-policy --id "$HEADERS_POLICY_ID"
-verify_absent "AWS WAF web ACL" aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --id "$WAF_ID" --name "$WAF_NAME"
+if [ "$WAF_ENABLED" = "true" ]; then
+  verify_absent "AWS WAF web ACL" aws wafv2 get-web-acl --region us-east-1 --scope CLOUDFRONT --id "$WAF_ID" --name "$WAF_NAME"
+fi
 verify_absent "Cognito user pool and users" aws cognito-idp describe-user-pool --region "$REGION" --user-pool-id "$USER_POOL_ID"
 verify_absent "Query Lambda and Function URL" aws lambda get-function --region "$REGION" --function-name "$QUERY_FUNCTION"
 verify_absent "Ingest Lambda" aws lambda get-function --region "$REGION" --function-name "$INGEST_FUNCTION"
@@ -382,13 +438,15 @@ verify_absent "S3 web bucket and all versions" aws s3api head-bucket --region "$
 verify_absent "S3 access-log bucket and all versions" aws s3api head-bucket --region "$REGION" --bucket "$ACCESS_LOG_BUCKET" --expected-bucket-owner "$ACCOUNT"
 verify_log_group_absent "Ingest CloudWatch log group" "$REGION" "$INGEST_LOG_GROUP"
 verify_log_group_absent "Query CloudWatch log group" "$REGION" "$QUERY_LOG_GROUP"
-verify_log_group_absent "AWS WAF CloudWatch log group" "us-east-1" "$WAF_LOG_GROUP"
+if [ "$WAF_ENABLED" = "true" ]; then
+  verify_log_group_absent "AWS WAF CloudWatch log group" "us-east-1" "$WAF_LOG_GROUP"
+fi
 
-for key_spec in "$REGION:$DATA_KEY_ID:Data KMS key" "us-east-1:$WAF_KEY_ID:WAF log KMS key"; do
-  key_region="${key_spec%%:*}"
-  remainder="${key_spec#*:}"
-  key_id="${remainder%%:*}"
-  key_label="${remainder#*:}"
+verify_kms_pending_deletion() {
+  local key_region="$1"
+  local key_id="$2"
+  local key_label="$3"
+  local key_state
   key_state="$(aws kms describe-key --region "$key_region" --key-id "$key_id" --query 'KeyMetadata.KeyState' --output text 2>/dev/null || true)"
   if [ "$key_state" = "PendingDeletion" ]; then
     printf '  PENDING DELETION: %s, 30-day AWS waiting period\n' "$key_label"
@@ -396,7 +454,12 @@ for key_spec in "$REGION:$DATA_KEY_ID:Data KMS key" "us-east-1:$WAF_KEY_ID:WAF l
     printf '  UNEXPECTED STATE: %s, %s\n' "$key_label" "${key_state:-not found}"
     VERIFICATION_FAILURES=$((VERIFICATION_FAILURES + 1))
   fi
-done
+}
+
+verify_kms_pending_deletion "$REGION" "$DATA_KEY_ID" "Data KMS key"
+if [ "$WAF_ENABLED" = "true" ]; then
+  verify_kms_pending_deletion "us-east-1" "$WAF_KEY_ID" "WAF log KMS key"
+fi
 
 REMAINING_STATE="$(terraform -chdir="$TF" state list | wc -l | tr -d ' ')"
 if [ "$REMAINING_STATE" = "0" ]; then

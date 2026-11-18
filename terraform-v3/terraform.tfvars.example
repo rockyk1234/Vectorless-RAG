@@ -2,6 +2,7 @@
 region           = "CHANGE_ME"
 project_name     = "vectorless-v3"
 admin_user_email = "CHANGE_ME"
+enable_waf       = true
 
 # These defaults must be available through Amazon Bedrock in the selected Region.
 router_model_id = "global.anthropic.claude-haiku-4-5-20251001-v1:0"

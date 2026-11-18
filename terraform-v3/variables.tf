@@ -4,6 +4,12 @@ variable "region" {
   default     = "us-east-1"
 }
 
+variable "enable_waf" {
+  description = "Deploy AWS WAF managed protections and encrypted WAF logs for CloudFront"
+  type        = bool
+  default     = true
+}
+
 variable "project_name" {
   description = "Lowercase prefix for v3 resources"
   type        = string

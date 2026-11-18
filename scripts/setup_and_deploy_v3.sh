@@ -190,6 +190,22 @@ while true; do
   printf 'Use 3 to 25 lowercase letters, numbers, or hyphens, starting with a letter or number.\n' >&2
 done
 
+while true; do
+  read -r -p "Deploy AWS WAF protection and encrypted WAF logs? [y/n]: " WAF_CHOICE
+  case "$WAF_CHOICE" in
+    y|Y|yes|YES)
+      ENABLE_WAF="true"
+      break
+      ;;
+    n|N|no|NO)
+      ENABLE_WAF="false"
+      printf 'AWS WAF edge filtering and WAF logs will not be deployed.\n'
+      break
+      ;;
+    *) printf 'Enter y or n.\n' >&2 ;;
+  esac
+done
+
 printf '\nDefault Bedrock inference profiles:\n  Router: %s\n  Answer: %s\n' \
   "$ROUTER_MODEL_ID" "$ANSWER_MODEL_ID"
 printf 'Global inference profiles may route requests across AWS Regions. Cancel if that conflicts with residency requirements.\n'
@@ -205,6 +221,7 @@ cat > "$TFVARS" <<EOF
 region           = "$REGION"
 project_name     = "$PROJECT_NAME"
 admin_user_email = "$ADMIN_EMAIL"
+enable_waf       = $ENABLE_WAF
 
 router_model_id = "$ROUTER_MODEL_ID"
 answer_model_id = "$ANSWER_MODEL_ID"
