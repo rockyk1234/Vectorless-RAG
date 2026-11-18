@@ -158,10 +158,12 @@ def _build_page_tree(blocks, by_id, tables):
             "page_start": page,
             "children": [],
         })
+        section_text = "\n".join(texts.get(nid, []))
         sections[nid] = {
             "title": title,
-            "text": "\n".join(texts.get(nid, [])),
+            "text": section_text,
             "pages": [page],
+            "page_texts": {str(page): section_text},
             "figures": figures.get(nid, []),
         }
     return tree, sections
@@ -183,6 +185,7 @@ def build_tree(blocks):
     nodes = {}  # number -> node
     order = []  # numbers in first-seen order
     texts = {}  # node_id -> list of text chunks
+    page_texts = {}  # node_id -> page -> list of text chunks
     pages = {}  # node_id -> set of pages
     figures = {}  # node_id -> [{page, bbox}]
     current = FRONT_ID
@@ -240,14 +243,17 @@ def build_tree(blocks):
             text = f"## {text.strip()}"  # unnumbered heading stays inline
 
         if btype in TEXT_TYPES or btype in HEADING_TYPES or btype == "LAYOUT_TABLE":
-            texts.setdefault(current, []).append(text.strip())
+            chunk = text.strip()
+            texts.setdefault(current, []).append(chunk)
+            page_texts.setdefault(current, {}).setdefault(page, []).append(chunk)
             pages.setdefault(current, set()).add(page)
 
-    return _assemble(nodes, order, texts, pages, figures)
+    return _assemble(nodes, order, texts, pages, figures, page_texts)
 
 
-def _assemble(nodes, order, texts, pages, figures=None):
+def _assemble(nodes, order, texts, pages, figures=None, page_texts=None):
     figures = figures or {}
+    page_texts = page_texts or {}
     sections = {}
     title_by_node_id = {node["node_id"]: node["title"] for node in nodes.values()}
     for nid, chunks in texts.items():
@@ -256,6 +262,10 @@ def _assemble(nodes, order, texts, pages, figures=None):
             "title": title,
             "text": "\n".join(chunks),
             "pages": sorted(pages.get(nid, [])),
+            "page_texts": {
+                str(page): "\n".join(page_chunks)
+                for page, page_chunks in sorted(page_texts.get(nid, {}).items())
+            },
             "figures": figures.get(nid, []),
         }
 

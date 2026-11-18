@@ -67,6 +67,17 @@ class TestTreeBuilder(unittest.TestCase):
         self.assertIn("exactly 25 Nm", text)
         self.assertEqual(self.sections["S_3_2"]["pages"], [4])
 
+    def test_sections_preserve_text_by_page(self):
+        _, sections = tb.build_tree(_blocks([
+            (9, "LAYOUT_SECTION_HEADER", "3.3 Cooling clearance"),
+            (9, "LAYOUT_TEXT", "This section describes air cooling."),
+            (10, "LAYOUT_TEXT", "Maintain 100 mm clearance above and below the drive."),
+        ]))
+        section = sections["S_3_3"]
+        self.assertEqual(section["pages"], [9, 10])
+        self.assertIn("air cooling", section["page_texts"]["9"])
+        self.assertIn("100 mm clearance", section["page_texts"]["10"])
+
     def test_toc_line_not_a_heading_and_page_numbers_dropped(self):
         self.assertIn("........ 7", self.sections["S_0"]["text"])
         self.assertNotIn("\n3\n", "\n" + self.sections["S_3_1"]["text"] + "\n")
@@ -235,6 +246,43 @@ class TestRuntime(unittest.TestCase):
         self.assertEqual(out["citations"][0]["pages"], [4])
         self.assertEqual(self.store.fetched, ["S_3_2"])  # only the chosen leaf
         self.assertEqual(llm.calls[1], ["S_3_INTRO", "S_3_1", "S_3_2"])
+
+    def test_citation_uses_exact_page_containing_quote(self):
+        sections = {
+            "S_3_3": {
+                "title": "3.3 Cooling clearance",
+                "text": (
+                    "This section describes air cooling.\n"
+                    "Maintain 100 mm clearance above and below the drive."
+                ),
+                "pages": [9, 10],
+                "page_texts": {
+                    "9": "This section describes air cooling.",
+                    "10": "Maintain 100 mm clearance above and below the drive.",
+                },
+                "figures": [],
+            },
+        }
+        citations = runtime.verified_quote_citations(
+            {"node_id": "S_3_3", "quote": "Maintain 100 mm clearance"},
+            sections,
+        )
+        self.assertEqual(citations[0]["pages"], [10])
+
+    def test_legacy_section_without_page_texts_keeps_page_range(self):
+        sections = {
+            "S_3_3": {
+                "title": "3.3 Cooling clearance",
+                "text": "Maintain 100 mm clearance above and below the drive.",
+                "pages": [9, 10],
+                "figures": [],
+            },
+        }
+        citations = runtime.verified_quote_citations(
+            {"node_id": "S_3_3", "quote": "Maintain 100 mm clearance"},
+            sections,
+        )
+        self.assertEqual(citations[0]["pages"], [9, 10])
 
     def test_string_quote_is_verified_against_fetched_sections(self):
         out, _ = self.run_loop(

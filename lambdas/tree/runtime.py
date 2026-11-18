@@ -30,11 +30,29 @@ def quote_in_text(quote, text):
     return len(q) >= MIN_QUOTE_CHARS and q in normalize(text)
 
 
+def _quote_pages(section, quote):
+    """Return exact pages containing the quote when per-page text is available."""
+    section_pages = section.get("pages", [])
+    page_texts = section.get("page_texts") or {}
+    matches = []
+    for raw_page, page_text in page_texts.items():
+        try:
+            page = int(raw_page)
+        except (TypeError, ValueError):
+            continue
+        source = page_text
+        if section_pages and page == section_pages[0]:
+            source = f"{section['title']}\n{source}"
+        if quote_in_text(quote, source):
+            matches.append(page)
+    return sorted(set(matches)) or section_pages
+
+
 def _citation(node_id, section, quote):
     return {
         "node_id": node_id,
         "title": section["title"],
-        "pages": section.get("pages", []),
+        "pages": _quote_pages(section, quote),
         "quote": quote,
         "figures": [figure for figure in section.get("figures", []) if figure.get("key")],
     }
