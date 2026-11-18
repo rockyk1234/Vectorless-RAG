@@ -78,7 +78,7 @@ Run the complete guided deployment:
 If you use a named AWS CLI profile:
 
 ```bash
-./scripts/setup_and_deploy_v3.sh --profile customer-deployment
+./scripts/setup_and_deploy_v3.sh --profile <profile>
 ```
 
 
