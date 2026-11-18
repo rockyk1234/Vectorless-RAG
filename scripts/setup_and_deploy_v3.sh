@@ -160,11 +160,6 @@ ACCOUNT="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Account"])' 
 CALLER_ARN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["Arn"])' <<< "$CALLER_JSON")"
 printf '\nDeployment identity:\n  Account: %s\n  Caller:  %s\n  Region:  %s\n' \
   "$ACCOUNT" "$CALLER_ARN" "$REGION"
-read -r -p "Continue with this account and Region? [y/N]: " IDENTITY_CONFIRMATION
-case "$IDENTITY_CONFIRMATION" in
-  y|Y|yes|YES) ;;
-  *) die "Account and Region were not confirmed" ;;
-esac
 
 while true; do
   read -r -p "Initial Cognito administrator email (receives the temporary password for first sign-in): " ADMIN_EMAIL
@@ -198,11 +193,6 @@ done
 printf '\nDefault Bedrock inference profiles:\n  Router: %s\n  Answer: %s\n' \
   "$ROUTER_MODEL_ID" "$ANSWER_MODEL_ID"
 printf 'Global inference profiles may route requests across AWS Regions. Cancel if that conflicts with residency requirements.\n'
-read -r -p "Use these default models? [y/N]: " MODEL_CONFIRMATION
-case "$MODEL_CONFIRMATION" in
-  y|Y|yes|YES) ;;
-  *) die "Default models were not accepted" ;;
-esac
 
 TFVARS="$TF/terraform.tfvars"
 if [ -e "$TFVARS" ]; then
@@ -272,11 +262,16 @@ if [ "$MODE" = "plan-only" ]; then
   exit 0
 fi
 
-printf '\nApplying this plan creates billable AWS resources and sends a Cognito invitation to %s.\n' "$ADMIN_EMAIL"
-read -r -p "Apply this plan and create the displayed AWS resources? [y/N]: " APPLY_CONFIRMATION
+printf '\nDeployment summary\n\n'
+printf '  Account:       %s\n' "$ACCOUNT"
+printf '  Region:        %s\n' "$REGION"
+printf '  Project:       %s\n' "$PROJECT_NAME"
+printf '  Administrator: %s\n' "$ADMIN_EMAIL"
+printf '  Models:        Claude Haiku 4.5 and Claude Sonnet 4.6\n\n'
+read -r -p "Deploy? [y/N]: " APPLY_CONFIRMATION
 case "$APPLY_CONFIRMATION" in
   y|Y|yes|YES) ;;
-  *) die "Terraform apply was not confirmed" ;;
+  *) die "Deployment was not confirmed" ;;
 esac
 terraform -chdir="$TF" apply -input=false "$PLAN"
 
@@ -302,43 +297,38 @@ if [ "$AUTH_VERIFIED" != "true" ]; then
 fi
 printf 'Anonymous authentication gate verified: HTTP 401.\n'
 
-printf '\nThe frontend script will display the exact target and require y/N confirmation.\n'
-if ! ./scripts/deploy_v3_frontend.sh; then
+printf '\nPublishing the frontend after the verified authentication gate...\n'
+if ! ./scripts/deploy_v3_frontend.sh <<< "y"; then
   print_resume_help
   die "Frontend deployment did not complete; infrastructure state was preserved"
 fi
 
-read -r -p "Fetch the tested Danfoss manual from its official source and upload it now? [y/N]: " UPLOAD_SAMPLE
-case "$UPLOAD_SAMPLE" in
-  y|Y|yes|YES)
-    if ! ./scripts/fetch_and_upload_danfoss.sh; then
-      print_resume_help
-      die "Manual download or upload did not complete; infrastructure and frontend remain deployed"
-    fi
+printf '\nFetching, verifying, and uploading the tested Danfoss manual...\n'
+if ! ./scripts/fetch_and_upload_danfoss.sh <<< "y"; then
+  print_resume_help
+  die "Manual download or upload did not complete; infrastructure and frontend remain deployed"
+fi
 
-    TABLE="$(terraform -chdir="$TF" output -raw metadata_table)"
-    printf 'Waiting for the manual CURRENT pointer...\n'
-    for ((attempt = 1; attempt <= MANUAL_INGEST_MAX_ATTEMPTS; attempt++)); do
-      DANFOSS_REVISION="$(aws dynamodb get-item \
-        --region "$REGION" \
-        --table-name "$TABLE" \
-        --key '{"pk":{"S":"MANUAL#PART#DANFOSS-FC280"},"sk":{"S":"CURRENT"}}' \
-        --consistent-read \
-        --query 'Item.revision.S' \
-        --output text 2>/dev/null || true)"
-      if [ "$DANFOSS_REVISION" = "r1" ]; then
-        printf 'The sample manual is ready.\n'
-        break
-      fi
-      if [ "$attempt" -eq "$MANUAL_INGEST_MAX_ATTEMPTS" ]; then
-        print_resume_help
-        die "Manual ingestion did not finish within $MANUAL_INGEST_TIMEOUT_MINUTES minutes. Inspect the ingest logs and DLQ, then rerun only the manual command if needed."
-      fi
-      sleep "$POLL_INTERVAL_SECONDS"
-    done
-    ;;
-  *) printf 'Sample upload skipped.\n' ;;
-esac
+TABLE="$(terraform -chdir="$TF" output -raw metadata_table)"
+printf 'Waiting for the manual CURRENT pointer...\n'
+for ((attempt = 1; attempt <= MANUAL_INGEST_MAX_ATTEMPTS; attempt++)); do
+  DANFOSS_REVISION="$(aws dynamodb get-item \
+    --region "$REGION" \
+    --table-name "$TABLE" \
+    --key '{"pk":{"S":"MANUAL#PART#DANFOSS-FC280"},"sk":{"S":"CURRENT"}}' \
+    --consistent-read \
+    --query 'Item.revision.S' \
+    --output text 2>/dev/null || true)"
+  if [ "$DANFOSS_REVISION" = "r1" ]; then
+    printf 'The sample manual is ready.\n'
+    break
+  fi
+  if [ "$attempt" -eq "$MANUAL_INGEST_MAX_ATTEMPTS" ]; then
+    print_resume_help
+    die "Manual ingestion did not finish within $MANUAL_INGEST_TIMEOUT_MINUTES minutes. Inspect the ingest logs and DLQ, then rerun only the manual command if needed."
+  fi
+  sleep "$POLL_INTERVAL_SECONDS"
+done
 
 printf '\nDeployment complete.\n  Account: %s\n  Region:  %s\n  Project: %s\n  URL:     %s\n' \
   "$ACCOUNT" "$REGION" "$PROJECT_NAME" "$WEB_URL"

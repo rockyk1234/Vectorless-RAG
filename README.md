@@ -92,9 +92,9 @@ The guided script:
 - runs tests, builds, dependency checks, and regional model preflight
 - creates and validates a Terraform plan
 - rejects plans containing updates or deletions for a fresh deployment
-- asks for confirmation before creating resources
+- displays one final deployment summary and asks for confirmation before creating resources
 - requires an anonymous HTTP 401 response before publishing the frontend
-- optionally downloads the tested Danfoss manual from its official source, verifies it, uploads it, and waits for ingestion
+- downloads the tested Danfoss manual from its official source, verifies it, uploads it, and waits for ingestion
 - prints the final application URL
 
 The administrator email receives the temporary password for first sign-in. Deployment-specific values are written to the Git-ignored `terraform-v3/terraform.tfvars` file. Credentials are never written to the repository or Terraform configuration.
