@@ -4,7 +4,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URL="https://files.danfoss.com/download/Drives/MG07A102.pdf"
-EXPECTED_SHA256="a1432e55f3ff76468a3e85738f543f824059ad13e0d9980d1af65d4a40d3ee77"
+EXPECTED_SHA256="a1432e55f3ff76468a3e85738f543f824059ad13e0d9980d1af65d4a40d3ee77"  # pragma: allowlist secret
 PROFILE_OVERRIDE=""
 
 usage() {
