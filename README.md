@@ -36,7 +36,7 @@ The stack also configures AWS KMS encryption, Amazon SQS dead-letter handling, A
 
 ## Prerequisites
 
-Use a customer-approved non-production AWS account with permissions to create the resources above.
+Use a dedicated non-production AWS account with permissions to create the resources above.
 
 Install:
 
@@ -127,7 +127,7 @@ The Region menu includes:
 - Asia Pacific, Singapore: `ap-southeast-1`
 - Asia Pacific, Sydney: `ap-southeast-2`
 
-The preflight makes bounded, billable Bedrock requests to verify model access and forced tool use before Terraform can apply. The default global Bedrock inference profiles may process requests outside the selected source Region. Customers with strict data residency requirements should select suitable direct or geographic inference profiles using the [manual deployment procedure](docs/HANDOVER.md).
+The preflight makes bounded, billable Bedrock requests to verify model access and forced tool use before Terraform can apply. The default global Bedrock inference profiles may process requests outside the selected source Region. For strict data residency requirements, select suitable direct or geographic inference profiles using the [manual deployment procedure](docs/HANDOVER.md).
 
 ## Test with the Danfoss manual
 
@@ -147,7 +147,7 @@ After ingestion completes, sign in and try:
 
 Ask an unrelated question to confirm the application returns `NOT_FOUND` instead of generating an unsupported answer.
 
-Do not commit customer documents. Store local private test files under `data/private/`, which Git ignores, and upload only approved documents to the customer-owned AWS account.
+Do not commit private or proprietary documents. Store local private test files under `data/private/`, which Git ignores, and upload only approved documents to the selected AWS account.
 
 ## Security summary
 
@@ -155,12 +155,12 @@ Do not commit customer documents. Store local private test files under `data/pri
 - CloudFront privately accesses the S3 origin and IAM-protected Lambda Function URL.
 - When selected, AWS WAF applies managed common and known-bad-input protections.
 - S3 public access blocks remain enabled.
-- Documents and application logs use customer managed AWS KMS keys.
+- Documents and application logs use dedicated AWS KMS keys managed in the deploying account.
 - Questions use POST bodies and are not written to CloudFront URL logs.
 - Application audit records contain hashes and routing metadata rather than question or quote text.
 - PDF and figure links are signed and expire after 15 minutes.
 
-Review [docs/HANDOVER.md](docs/HANDOVER.md) before using the proof of concept with customer data or extending it toward production.
+Review [docs/HANDOVER.md](docs/HANDOVER.md) before using the proof of concept with protected data or extending it toward production.
 
 ## Pilot cost estimate
 
@@ -180,7 +180,7 @@ Pricing references: [Amazon Bedrock](https://aws.amazon.com/bedrock/pricing/), [
 
 ## Detailed documentation
 
-- [Customer handover, manual deployment, verification, and cleanup](docs/HANDOVER.md)
+- [Deployment handover, manual procedure, verification, and cleanup](docs/HANDOVER.md)
 - [Architecture decision record](docs/adr/001-v3-storage-and-api.md)
 - [Terraform variables](terraform-v3/variables.tf)
 - [Sample-document mappings and checksums](sample-documents/README.md)
